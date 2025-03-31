@@ -1,0 +1,418 @@
+/* Animasi untuk countdown */
+@keyframes flip {
+  0% {
+    transform: rotateX(0deg);
+  }
+  50% {
+    transform: rotateX(90deg);
+  }
+  100% {
+    transform: rotateX(0deg);
+  }
+}
+
+/* Animasi untuk munculnya modal */
+@keyframes slideIn {
+  0% {
+    transform: translateY(20px);
+    opacity: 0;
+  }
+  100% {
+    transform: translateY(0);
+    opacity: 1;
+  }
+}
+
+/* Animasi untuk tombol promo */
+@keyframes pulse {
+  0% {
+    transform: scale(1);
+  }
+  50% {
+    transform: scale(1.05);
+  }
+  100% {
+    transform: scale(1);
+  }
+}
+
+/* Animasi untuk teks "Offer Expired" */
+@keyframes fadeIn {
+  0% {
+    opacity: 0;
+    transform: translateY(10px);
+  }
+  100% {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+/* Class untuk animasi countdown */
+.countdown-item span:first-child.flip-animation {
+  animation: flip 0.5s ease;
+}
+
+/* Class untuk animasi modal */
+#promo-modal.modal.active .modal-content {
+  animation: slideIn 0.3s ease forwards;
+}
+
+/* Class untuk animasi tombol promo */
+.promo-button {
+  animation: pulse 2s infinite;
+}
+
+/* Class untuk animasi teks "Offer Expired" */
+.countdown.expired {
+  animation: fadeIn 0.5s ease forwards;
+}
+
+.countdown-item span:first-child {
+  font-size: 1.2rem;
+  font-weight: 700;
+  color: #09577c;
+  background-color: #f0f5ff;
+  width: 40px;
+  height: 40px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 8px;
+  margin-bottom: 3px;
+}
+
+.countdown-item span:last-child {
+  font-size: 0.7rem;
+  color: #777;
+}
+
+.countdown-item span:first-child.flip-animation {
+  animation: flip 0.5s ease;
+}
+
+@keyframes flip {
+  0% {
+    transform: rotateX(0deg);
+  }
+  50% {
+    transform: rotateX(90deg);
+  }
+  100% {
+    transform: rotateX(0deg);
+  }
+}
+
+/* Base animation class */
+.animated {
+  opacity: 0;
+  transform-origin: center;
+}
+
+/* Animation Definitions */
+/* 1. Fade */
+@keyframes fadeIn {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+@keyframes fadeOut {
+  from {
+    opacity: 1;
+  }
+  to {
+    opacity: 0;
+  }
+}
+
+/* 2. Slide Up/Down */
+@keyframes slideUp {
+  from {
+    transform: translateY(50px);
+  }
+  to {
+    transform: translateY(0);
+  }
+}
+@keyframes slideDown {
+  from {
+    transform: translateY(0);
+  }
+  to {
+    transform: translateY(50px);
+  }
+}
+
+/* 3. Bounce */
+@keyframes bounceIn {
+  0%,
+  20%,
+  40%,
+  60%,
+  80%,
+  100% {
+    transition-timing-function: cubic-bezier(0.215, 0.61, 0.355, 1);
+  }
+  0% {
+    transform: translateY(100px);
+  }
+  20% {
+    transform: translateY(-30px);
+  }
+  40% {
+    transform: translateY(15px);
+  }
+  60% {
+    transform: translateY(-10px);
+  }
+  80% {
+    transform: translateY(5px);
+  }
+  100% {
+    transform: translateY(0);
+  }
+}
+@keyframes bounceOut {
+  20% {
+    transform: translateY(-10px);
+  }
+  50% {
+    transform: translateY(15px);
+  }
+  80% {
+    transform: translateY(-30px);
+  }
+  100% {
+    transform: translateY(100px);
+  }
+}
+
+/* 4. Zoom */
+@keyframes zoomIn {
+  from {
+    transform: scale(0.5);
+  }
+  to {
+    transform: scale(1);
+  }
+}
+@keyframes zoomOut {
+  from {
+    transform: scale(1);
+  }
+  to {
+    transform: scale(0.5);
+  }
+}
+
+/* 5. Rotate */
+@keyframes rotateIn {
+  from {
+    transform: rotate(-30deg);
+  }
+  to {
+    transform: rotate(0);
+  }
+}
+@keyframes rotateOut {
+  from {
+    transform: rotate(0);
+  }
+  to {
+    transform: rotate(30deg);
+  }
+}
+
+/* 6. Flip */
+@keyframes flipIn {
+  from {
+    transform: perspective(400px) rotateY(90deg);
+  }
+  to {
+    transform: perspective(400px) rotateY(0);
+  }
+}
+@keyframes flipOut {
+  from {
+    transform: perspective(400px) rotateY(0);
+  }
+  to {
+    transform: perspective(400px) rotateY(-90deg);
+  }
+}
+
+/* 7. Swing */
+@keyframes swingIn {
+  20% {
+    transform: rotate(15deg);
+  }
+  40% {
+    transform: rotate(-10deg);
+  }
+  60% {
+    transform: rotate(5deg);
+  }
+  80% {
+    transform: rotate(-5deg);
+  }
+  100% {
+    transform: rotate(0deg);
+  }
+}
+@keyframes swingOut {
+  20% {
+    transform: rotate(-15deg);
+  }
+  40% {
+    transform: rotate(10deg);
+  }
+  60% {
+    transform: rotate(-5deg);
+  }
+  80% {
+    transform: rotate(5deg);
+  }
+  100% {
+    transform: rotate(0deg);
+  }
+}
+
+/* 8. Pulse */
+@keyframes pulseIn {
+  0% {
+    transform: scale(0.95);
+  }
+  50% {
+    transform: scale(1.05);
+  }
+  100% {
+    transform: scale(1);
+  }
+}
+@keyframes pulseOut {
+  0% {
+    transform: scale(1);
+  }
+  50% {
+    transform: scale(0.95);
+  }
+  100% {
+    transform: scale(0.9);
+  }
+}
+
+/* 9. Roll */
+@keyframes rollIn {
+  from {
+    transform: translateX(-100%) rotate(-120deg);
+  }
+  to {
+    transform: translateX(0) rotate(0);
+  }
+}
+@keyframes rollOut {
+  from {
+    transform: translateX(0) rotate(0);
+  }
+  to {
+    transform: translateX(100%) rotate(120deg);
+  }
+}
+
+/* 10. Wave */
+@keyframes waveIn {
+  0% {
+    transform: skewX(-15deg) translateX(-100px);
+  }
+  50% {
+    transform: skewX(15deg) translateX(0);
+  }
+  100% {
+    transform: skewX(0) translateX(0);
+  }
+}
+@keyframes waveOut {
+  0% {
+    transform: skewX(0) translateX(0);
+  }
+  50% {
+    transform: skewX(-15deg) translateX(100px);
+  }
+  100% {
+    transform: skewX(15deg) translateX(200px);
+  }
+}
+
+/* Animation Classes */
+.fade-in {
+  animation: fadeIn 2s forwards;
+}
+.fade-out {
+  animation: fadeOut 2s forwards;
+}
+
+.slide-up {
+  animation: slideUp 1s ease-out forwards;
+}
+.slide-down {
+  animation: slideDown 1s ease-in forwards;
+}
+
+.bounce-in {
+  animation: bounceIn 1s forwards;
+}
+.bounce-out {
+  animation: bounceOut 1s forwards;
+}
+
+.zoom-in {
+  animation: zoomIn 1s forwards;
+}
+.zoom-out {
+  animation: zoomOut 1s forwards;
+}
+
+.rotate-in {
+  animation: rotateIn 1s forwards;
+}
+.rotate-out {
+  animation: rotateOut 1s forwards;
+}
+
+.flip-in {
+  animation: flipIn 1s forwards;
+}
+.flip-out {
+  animation: flipOut 1s forwards;
+}
+
+.swing-in {
+  animation: swingIn 1s forwards;
+}
+.swing-out {
+  animation: swingOut 1s forwards;
+}
+
+.pulse-in {
+  animation: pulseIn 1s forwards;
+}
+.pulse-out {
+  animation: pulseOut 1s forwards;
+}
+
+.roll-in {
+  animation: rollIn 1s forwards;
+}
+.roll-out {
+  animation: rollOut 1s forwards;
+}
+
+.wave-in {
+  animation: waveIn 1s forwards;
+}
+.wave-out {
+  animation: waveOut 1s forwards;
+}
