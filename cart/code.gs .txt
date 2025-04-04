@@ -1,0 +1,285 @@
+// --- Google Apps Script (Code.gs) ---
+
+// !!! REPLACE WITH YOUR ACTUAL GOOGLE SHEET ID !!!
+var SPREADSHEET_ID = "1cHtt-g1QH1jG5Dq3qdBLdnsNrXE4XLOxcYKnnanEQMY";
+var SHEET_NAME = "Orders"; // Or your desired sheet name
+var ADMIN_EMAIL_BCC = ""; // Leave empty "" if no BCC needed
+
+function doPost(e) {
+  var lock = LockService.getScriptLock();
+  var success = false;
+  var responseMessage = "An unknown error occurred.";
+
+  try {
+    lock.waitLock(30000);
+
+    // --- 1. Input Validation & Parsing ---
+    if (!e || !e.postData || !e.postData.contents) throw new Error("No data received.");
+    var data;
+    try { data = JSON.parse(e.postData.contents); Logger.log("Received: " + e.postData.contents); }
+    catch (jsonError) { throw new Error("Invalid data format (not JSON)."); }
+    if (!data.name || !data.email || !data.phone || !data.cartItems || !data.totalPrice) throw new Error("Data tidak lengkap.");
+    if (!validateEmail(data.email)) throw new Error("Format email tidak valid.");
+
+    var name = String(data.name).trim();
+    var email = String(data.email).trim().toLowerCase();
+    var phone = String(data.phone).trim();
+    var cartItems = String(data.cartItems || "").trim();
+    var totalPrice = String(data.totalPrice || "Rp 0").trim();
+    var timestamp = data.timestamp ? new Date(data.timestamp) : new Date();
+    if (name.length === 0 || phone.length === 0 || cartItems.length === 0) throw new Error("Nama, Telepon, dan Keranjang tidak boleh kosong.");
+
+    // --- 2. Google Sheet Interaction ---
+    var ss;
+    try { ss = SpreadsheetApp.openById(SPREADSHEET_ID); } catch (sheetOpenError) { Logger.log("Sheet Open Error: " + sheetOpenError); throw new Error("Kesalahan Spreadsheet."); }
+    var sheet = ss.getSheetByName(SHEET_NAME);
+    if (!sheet) {
+      try { sheet = ss.insertSheet(SHEET_NAME); Logger.log("Created sheet: " + SHEET_NAME); }
+      catch (sheetCreateError) { Logger.log("Sheet Create Error: " + sheetCreateError); throw new Error("Sheet target tidak ditemukan."); }
+    }
+    // Ensure header exists
+    addHeaderRowIfNeeded_(sheet, ["Timestamp", "Name", "Email", "Phone", "OrderedItems", "TotalPrice"]);
+    // Append data
+    sheet.appendRow([timestamp, name, email, phone, cartItems, totalPrice]);
+    Logger.log("Data appended to sheet.");
+
+    // --- 3. Send Confirmation Email ---
+    sendConfirmationEmailWithTable(name, email, phone, cartItems, totalPrice);
+    Logger.log("Attempted to send confirmation email.");
+
+    // --- 4. Success ---
+    success = true;
+    responseMessage = "Pesanan berhasil dikirim! Kami akan segera menghubungi Anda. Terima kasih.";
+    return createJsonResponse_({ status: "success", message: responseMessage });
+
+  } catch (error) {
+    Logger.log("ERROR in doPost: " + error.message + "\nPayload: " + (e && e.postData ? e.postData.contents : "N/A") + "\nStack: " + error.stack);
+    responseMessage = "Gagal memproses pesanan: " + error.message;
+    return createJsonResponse_({ status: "error", message: responseMessage });
+  } finally {
+    if (lock) { lock.releaseLock(); Logger.log("Lock released. Success: " + success + ". Response: " + responseMessage); }
+  }
+}
+
+/**
+ * Ensures the specified header row exists in the sheet. Adds or corrects it if needed.
+ * @param {Sheet} sheet The sheet object.
+ * @param {Array<string>} headers An array of header strings.
+ * @private
+ */
+function addHeaderRowIfNeeded_(sheet, headers) {
+   try {
+     if (sheet.getLastRow() === 0 || (sheet.getLastRow() > 0 && sheet.getRange(1, 1, 1, Math.max(1, sheet.getLastColumn())).getValues()[0].join("").length === 0)) {
+       // Sheet is empty or first row is empty
+        sheet.getRange(1, 1, 1, headers.length).setValues([headers]).setFontWeight("bold");
+        Logger.log("Added header row as sheet was empty.");
+     } else {
+       // Check if existing header matches
+       const currentHeaders = sheet.getRange(1, 1, 1, headers.length).getValues()[0];
+       let needsUpdate = false;
+       if (currentHeaders.length < headers.length) {
+          needsUpdate = true;
+       } else {
+          for(let i = 0; i < headers.length; i++) {
+              if(String(currentHeaders[i]).trim() !== headers[i]) {
+                  needsUpdate = true; break;
+              }
+          }
+       }
+       if (needsUpdate) {
+           // Optional: Insert row if you don't want to overwrite potential data in row 1
+           // sheet.insertRowBefore(1);
+           sheet.getRange(1, 1, 1, headers.length).setValues([headers]).setFontWeight("bold");
+           Logger.log("Corrected header row.");
+       }
+     }
+   } catch (e) {
+       Logger.log("Warning: Error checking/adding header row: " + e);
+       // Continue script execution even if header check fails
+   }
+}
+
+
+/**
+ * Sends a confirmation email using an HTML table for items.
+ *
+ * @param {string} name Customer's name.
+ * @param {string} recipientEmail Customer's email.
+ * @param {string} phone Customer's phone.
+ * @param {string} orderedItemsString Semicolon+newline separated items string from JS.
+ * @param {string} totalPriceString Formatted total price string.
+ */
+function sendConfirmationEmailWithTable(name, recipientEmail, phone, orderedItemsString, totalPriceString) {
+  try {
+    var subject = "Konfirmasi Pesanan Layanan Edugo Skripsi";
+    var senderName = "Tim Edugo Skripsi";
+
+    // --- Generate Table Rows for Items ---
+    var tableRowsHtml = '';
+    var itemsArray = orderedItemsString.split(';\n').map(function(item) { return item.trim(); }).filter(function(item) { return item.length > 0; });
+
+    if (itemsArray.length > 0) {
+        itemsArray.forEach(function(itemString, index) {
+            // Attempt to split item name/option from price
+            var itemDescription = itemString;
+            var itemPrice = '';
+            var priceMatch = itemString.match(/\((Rp\s*[\d.,]+)\)$/); // Regex to find (Rp ...) at the end
+
+            if (priceMatch && priceMatch[1]) {
+                itemPrice = priceMatch[1];
+                // Remove the price part from the description
+                itemDescription = itemString.substring(0, itemString.lastIndexOf('(')).trim();
+                 // Remove the leading number like "1. "
+                itemDescription = itemDescription.replace(/^\d+\.\s*/, '');
+            } else {
+                 // If no price found in expected format, keep full string as description
+                 itemDescription = itemString.replace(/^\d+\.\s*/, ''); // Still remove leading number
+            }
+
+
+            tableRowsHtml += `
+                <tr style="border-bottom: 1px solid #eaeaea;">
+                    <td style="padding: 10px 8px; text-align: center; color: #555;">${index + 1}</td>
+                    <td style="padding: 10px 15px;">${escapeHtml_(itemDescription)}</td>
+                    <td style="padding: 10px 15px; text-align: right; white-space: nowrap;">${escapeHtml_(itemPrice)}</td>
+                </tr>
+            `;
+        });
+    } else {
+        tableRowsHtml = '<tr><td colspan="3" style="padding: 15px; text-align: center; color: #777;">Tidak ada detail item yang tercatat.</td></tr>';
+    }
+
+    // --- Construct Full HTML Email Body ---
+    var htmlBody = `
+      <!DOCTYPE html>
+      <html>
+      <head>
+          <meta charset="UTF-8">
+          <meta name="viewport" content="width=device-width, initial-scale=1.0">
+          <style>
+              body { margin: 0; padding: 0; font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; line-height: 1.6; color: #333333; background-color: #f4f4f7; }
+              .email-container { max-width: 650px; margin: 20px auto; background-color: #ffffff; border: 1px solid #dcdcdc; border-radius: 8px; overflow: hidden; box-shadow: 0 4px 15px rgba(0,0,0,0.08); }
+              .header { background-color: #09577c; color: #ffffff; padding: 25px 30px; text-align: center; border-bottom: 5px solid #0c6791; }
+              .header h1 { margin: 0; font-size: 26px; font-weight: 600; }
+              .content { padding: 30px 35px; }
+              .content p { margin-bottom: 18px; font-size: 15px; color: #444; }
+              .content h2 { color: #09577c; margin-top: 0; margin-bottom: 10px; font-size: 20px; font-weight: 600; }
+              .items-table { width: 100%; border-collapse: collapse; margin-top: 15px; margin-bottom: 25px; }
+              .items-table th { background-color: #f8f9fa; color: #333; padding: 12px 15px; text-align: left; border-bottom: 2px solid #dee2e6; font-size: 14px; font-weight: 600; }
+              .items-table th.price-col { text-align: right; }
+              .total-row td { padding-top: 15px; border-top: 2px solid #dee2e6; font-weight: bold; font-size: 1.1em; }
+              .total-label { text-align: right; padding-right: 10px; color: #555;}
+              .total-value { text-align: right; color: #09577c; white-space: nowrap;}
+              strong.customer-detail { color: #0b6a94; }
+              .contact-info { margin-top: 25px; padding-top: 15px; border-top: 1px dashed #cccccc; font-size: 14px; }
+              .footer { margin-top: 0; padding: 20px; font-size: 13px; color: #888888; text-align: center; background-color: #f8f8f8; border-top: 1px solid #eaeaea; }
+              a { color: #1a73e8; text-decoration: none; }
+              a:hover { text-decoration: underline; }
+          </style>
+      </head>
+      <body>
+          <div class="email-container">
+              <div class="header">
+                  <h1>Pesanan Anda Diterima!</h1>
+              </div>
+              <div class="content">
+                  <h2>Halo ${escapeHtml_(name)},</h2>
+                  <p>Terima kasih telah memesan layanan dari <strong>${senderName}</strong>! Rincian pesanan Anda adalah sebagai berikut:</p>
+
+                  <table class="items-table">
+                      <thead>
+                          <tr>
+                              <th style="width: 10%; text-align: center;">No.</th>
+                              <th>Layanan / Opsi</th>
+                              <th class="price-col">Harga</th>
+                          </tr>
+                      </thead>
+                      <tbody>
+                          ${tableRowsHtml}
+                      </tbody>
+                      <tfoot>
+                          <tr class="total-row">
+                              <td colspan="2" class="total-label">Total Estimasi:</td>
+                              <td class="total-value">${escapeHtml_(totalPriceString)}</td>
+                          </tr>
+                      </tfoot>
+                  </table>
+
+                  <p>Tim kami akan segera menghubungi Anda melalui nomor telepon/WhatsApp di <strong class="customer-detail">${escapeHtml_(phone)}</strong> untuk konfirmasi lebih lanjut, termasuk detail pembayaran dan langkah berikutnya.</p>
+                  <div class="contact-info">
+                    <p>Jika Anda memiliki pertanyaan sebelum kami hubungi, jangan ragu untuk membalas email ini atau menghubungi kami langsung melalui <a href="https://wa.me/6285250794070?text=Halo%20Edugo%2C%20saya%20mau%20tanya%20tentang%20pesanan%20saya%20(${escapeHtml_(name)})">WhatsApp di Sini</a>.</p>
+                  </div>
+                  <br>
+                  <p>Salam Hangat,</p>
+                  <p><strong>${senderName}</strong></p>
+              </div>
+              <div class="footer">
+                  Email ini dikirim secara otomatis. Anda menerima email ini karena melakukan pemesanan layanan di website kami.
+              </div>
+          </div>
+      </body>
+      </html>
+    `;
+
+    var mailOptions = {
+      to: recipientEmail,
+      subject: subject,
+      htmlBody: htmlBody,
+      name: senderName // "From" display name
+    };
+
+    // Add BCC if configured and valid
+    if (ADMIN_EMAIL_BCC && ADMIN_EMAIL_BCC.length > 5 && validateEmail(ADMIN_EMAIL_BCC)) {
+      mailOptions.bcc = ADMIN_EMAIL_BCC;
+      Logger.log("Admin BCC: " + ADMIN_EMAIL_BCC);
+    } else if (ADMIN_EMAIL_BCC && ADMIN_EMAIL_BCC.length > 0) {
+      Logger.log("Invalid Admin BCC email: '" + ADMIN_EMAIL_BCC + "'. Not sending BCC.");
+    }
+
+    // Send Email
+    MailApp.sendEmail(mailOptions);
+    Logger.log("Confirmation email successfully sent to: " + recipientEmail);
+
+  } catch (error) {
+    Logger.log("ERROR sending confirmation email to " + recipientEmail + ". Error: " + error.message + "\nStack: " + error.stack);
+    // Optional: Re-throw if email failure is critical
+    // throw new Error("Failed to send confirmation email: " + error.message);
+  }
+}
+
+/** Validates email format */
+function validateEmail(email) {
+  if (!email || typeof email !== 'string') return false;
+  var re = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+  return re.test(String(email).trim().toLowerCase());
+}
+
+/** Creates JSON response object */
+function createJsonResponse_(data) {
+  var jsonString; try { jsonString = JSON.stringify(data); } catch (e) { Logger.log("JSON Stringify Error: " + e); jsonString = JSON.stringify({ status: "error", message: "Internal server error creating response." }); }
+  return ContentService.createTextOutput(jsonString).setMimeType(ContentService.MimeType.JSON);
+}
+
+/** Basic HTML escaping */
+function escapeHtml_(str) {
+  if (str === null || typeof str === 'undefined') return '';
+  // Correctly escape HTML special characters with their entities
+  return String(str)
+         .replace(/&/g, '&amp;')  // Replace & with &amp;
+         .replace(/</g, '&lt;')   // Replace < with &lt;
+         .replace(/>/g, '&gt;')   // Replace > with &gt;
+         .replace(/"/g, '&quot;') // Replace " with &quot;
+         .replace(/'/g, '&#39;'); // Replace ' with &#39; (HTML entity for single quote)
+}
+
+// --- Optional Test Functions ---
+function testSheetAccess() { if (SPREADSHEET_ID === "YOUR_GOOGLE_SHEET_ID_HERE") { Logger.log("Please replace SPREADSHEET_ID first."); return; } try { var ss = SpreadsheetApp.openById(SPREADSHEET_ID); var sheet = ss.getSheetByName(SHEET_NAME); if (!sheet) { Logger.log("Sheet '" + SHEET_NAME + "' not found."); } else { Logger.log("Sheet Access OK: '" + SHEET_NAME + "'. Last row: " + sheet.getLastRow()); } } catch(e) { Logger.log("Sheet Access Error: " + e); } }
+function testSendEmailTable() { var testEmail = "your_test_email@example.com"; if (testEmail === "your_test_email@example.com") { Logger.log("Please replace email in testSendEmailTable."); return; } sendConfirmationEmailWithTable( "Test Customer Table", testEmail, "089988776655", "1. KONSULTASI/BIMBINGAN - Opsi: Paket Bulanan (8x) (Rp 320.000);\n2. BAB I PENELITIAN - Opsi: Free Revisi sampai ACC (Rp 250.000);\n3. CEK TURNITIN - Opsi: 1x check (Rp 15.000)", "Rp 585.000" ); Logger.log("Test table email executed. Check " + testEmail + " inbox/spam and Logs."); }
+
+/* --- Deployment Instructions --- (Remain the same, ensure you RE-DEPLOY if changing code) */
+
+function escapeAttribute(str) {
+    if (typeof str !== "string") return "";
+    // Replace double quotes with the HTML entity &quot;
+    return str.replace(/"/g, "&quot;");
+  }
