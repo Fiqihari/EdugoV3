@@ -6,7 +6,7 @@ document.addEventListener("DOMContentLoaded", () => {
   // --- CONFIGURATION ---
   // <<<--- YOUR SCRIPT DEPLOYMENT ID (Extracted from the URL) --->>>
   const SCRIPT_DEPLOYMENT_ID =
-    "AKfycbzbaTDhZtn3iHDEDM34RtVgkmTh2hEqlGNpNuqGDYjduBxErkV0JzO_S0uU9hzwyLcJ8A";
+    "AKfycbw9Qb1acDCVO70vv628bbdRWW-QqcEq8a5izOFMGwP0H94l2L7JcGeSOhrBNnDyHFbj";
   // <<<--- YOUR FULL SCRIPT URL (Constructed using the ID above) --->>>
   const SCRIPT_URL = `https://script.google.com/macros/s/${SCRIPT_DEPLOYMENT_ID}/exec`;
 
