@@ -1,0 +1,296 @@
+// --- Google Apps Script (Code.gs) - Revised for Order ID ---
+
+// !!! REPLACE WITH YOUR ACTUAL GOOGLE SHEET ID !!!
+var SPREADSHEET_ID = "1cHtt-g1QH1jG5Dq3qdBLdnsNrXE4XLOxcYKnnanEQMY"; // Replace if needed
+var SHEET_NAME = "Orders"; // Or your desired sheet name
+var ADMIN_EMAIL_BCC = "youremail@example.com"; // Replace with your admin email or leave empty ""
+
+// --- doOptions (Minimal - No changes needed) ---
+function doOptions(e) {
+  Logger.log("--- doOptions triggered (minimal implementation) ---");
+  return ContentService.createTextOutput("").setMimeType(ContentService.MimeType.TEXT);
+}
+
+// --- doGet Handler (Using HtmlService Wrapper - No changes needed) ---
+function doGet(e) {
+  Logger.log("Received GET request. Parameters: " + JSON.stringify(e.parameter));
+  var message = "Google Apps Script endpoint for Edugo Skripsi is active. Use POST requests from the website form to submit orders.";
+  try {
+    var htmlOutput = HtmlService.createHtmlOutput('<pre>' + escapeHtml_(message) + '</pre>');
+    htmlOutput.addMetaTag('viewport', 'width=device-width, initial-scale=1');
+    htmlOutput.setXFrameOptionsMode(HtmlService.XFrameOptionsMode.ALLOWALL);
+    Logger.log("Returning GET response via HtmlService wrapper.");
+    return htmlOutput;
+  } catch (err) {
+    Logger.log("!!! ERROR in doGet !!!");
+    Logger.log("Error Message: " + err.message);
+    Logger.log("Error Stack: " + err.stack);
+    return HtmlService.createHtmlOutput('Internal Server Error during GET handling.');
+  }
+}
+
+// --- Main POST Handler (Modified for Order ID) ---
+function doPost(e) {
+  var lock = LockService.getScriptLock();
+  var success = false;
+  var responseMessage = "An unknown error occurred.";
+  var htmlOutput;
+  var receivedOrderId = "N/A"; // Variable to store received Order ID for logging
+
+  try {
+    lock.waitLock(30000);
+    Logger.log("doPost execution started (expecting text/plain input with OrderID, returning HtmlService wrapped text output).");
+
+    // --- 1. Input Validation & Parsing ---
+    if (!e || !e.postData || !e.postData.contents) {
+      throw new Error("No data received.");
+    }
+    var rawData = e.postData.contents;
+    Logger.log("Received Plain Text Payload:\n" + rawData);
+
+    var data = {};
+    var separator = "\r\n<--FIELD-->\r\n";
+    var parts = rawData.split(separator);
+    // Adjust expected parts count if orderId is mandatory
+    if (parts.length < 6) { // orderId, timestamp, name, email, phone, cartItems, totalPrice
+        throw new Error("Invalid data format received (text parsing) - expected at least 6 fields.");
+    }
+    parts.forEach(function(part) {
+        var keyValue = part.split('=');
+        if (keyValue.length >= 2) {
+            var key = keyValue[0].trim();
+            var value = keyValue.slice(1).join('=').trim();
+            data[key] = value;
+        }
+    });
+    receivedOrderId = data.orderId || "MISSING"; // Store for logging
+    Logger.log("Parsed payload. Received Order ID: " + receivedOrderId);
+
+    // --- Validation (Include Order ID Check) ---
+    if (!data.orderId || !data.name || !data.email || !data.phone || !data.cartItems || !data.totalPrice) {
+       throw new Error("Data tidak lengkap. Mohon periksa ID Pesanan, nama, email, telepon, dan detail pesanan.");
+    }
+    if (!validateEmail(data.email)) {
+       throw new Error("Format email tidak valid.");
+    }
+    var orderId = String(data.orderId || "").trim(); // Get the order ID
+    var name = String(data.name || "").trim();
+    var email = String(data.email || "").trim().toLowerCase();
+    var phone = String(data.phone || "").trim();
+    var cartItems = String(data.cartItems || "").trim();
+    var totalPrice = String(data.totalPrice || "Rp 0").trim();
+    var timestamp = data.timestamp ? new Date(data.timestamp) : new Date(); // Use received timestamp if available
+    if (orderId.length === 0 || name.length === 0 || phone.length === 0 || cartItems.length === 0) {
+       throw new Error("ID Pesanan, Nama, Telepon, dan Keranjang tidak boleh kosong.");
+    }
+    Logger.log("Input data validated successfully. Order ID: " + orderId);
+
+    // --- 2. Google Sheet Interaction ---
+    var ss = SpreadsheetApp.openById(SPREADSHEET_ID);
+    var sheet = ss.getSheetByName(SHEET_NAME);
+    var headers = ["Timestamp", "OrderID", "Name", "Email", "Phone", "OrderedItems", "TotalPrice"]; // Add OrderID header
+     if (!sheet) {
+        sheet = ss.insertSheet(SHEET_NAME);
+        Logger.log("Created sheet: " + SHEET_NAME);
+        addHeaderRowIfNeeded_(sheet, headers);
+     } else {
+        Logger.log("Found existing sheet: " + SHEET_NAME);
+        addHeaderRowIfNeeded_(sheet, headers); // Ensure header exists/matches
+     }
+    // Append row including the Order ID
+    sheet.appendRow([timestamp, orderId, name, email, phone, cartItems, totalPrice]);
+    SpreadsheetApp.flush();
+    Logger.log("Data appended successfully to sheet '" + SHEET_NAME + "' for Order ID: " + orderId);
+
+    // --- 3. Send Confirmation Email (Include Order ID) ---
+    sendConfirmationEmailWithTable(orderId, name, email, phone, cartItems, totalPrice);
+    Logger.log("Attempted to send confirmation email to " + email + " for Order ID: " + orderId);
+
+    // --- Success Response Construction ---
+    success = true;
+    // Response message doesn't need to include OrderID as client can't read it anyway
+    responseMessage = "SUCCESS:" + "Pesanan berhasil dikirim! Kami akan segera menghubungi Anda. Terima kasih.";
+    Logger.log("doPost successful for Order ID: " + orderId + ". Preparing SUCCESS response wrapped in HtmlService.");
+
+    htmlOutput = HtmlService.createHtmlOutput(responseMessage);
+    htmlOutput.setXFrameOptionsMode(HtmlService.XFrameOptionsMode.ALLOWALL);
+
+    Logger.log("Returning Success Response (HtmlService wrapped Text): " + responseMessage);
+    return htmlOutput;
+
+  } catch (error) {
+    Logger.log("!!! ERROR in doPost (Received Order ID: " + receivedOrderId + ") !!!");
+    Logger.log("Error Message: " + error.message);
+    Logger.log("Payload Received on Error: " + (e && e.postData ? e.postData.contents : "N/A"));
+    Logger.log("Error Stack: " + error.stack);
+
+    var errorPrefix = "ERROR:";
+    if (error.message.includes("Data tidak lengkap") || error.message.includes("tidak valid") || error.message.includes("tidak boleh kosong") || error.message.includes("parsing")) {
+       responseMessage = errorPrefix + error.message;
+    } else if (error.message.includes("Kesalahan sistem")) {
+       responseMessage = errorPrefix + error.message;
+    } else {
+       responseMessage = errorPrefix + "Gagal memproses pesanan. Silakan coba lagi atau hubungi support jika masalah berlanjut. Ref: " + Utilities.getUuid();
+       Logger.log("Generic error ref ID: " + responseMessage.split("Ref: ")[1]);
+    }
+
+    Logger.log("Preparing ERROR response wrapped in HtmlService.");
+    htmlOutput = HtmlService.createHtmlOutput(responseMessage);
+    htmlOutput.setXFrameOptionsMode(HtmlService.XFrameOptionsMode.ALLOWALL);
+
+    Logger.log("Returning Error Response (HtmlService wrapped Text): " + responseMessage);
+    return htmlOutput;
+
+  } finally {
+    if (lock && lock.hasLock()) {
+        try { lock.releaseLock(); Logger.log("Lock released."); }
+        catch(releaseError) { Logger.log("Error releasing lock: " + releaseError); }
+    }
+    Logger.log("doPost execution finished. Success Flag: " + success + ". Processed Order ID: " + receivedOrderId);
+  }
+}
+
+
+// ========================================================================
+// ==                       HELPER FUNCTIONS                           ==
+// ========================================================================
+
+// --- Modified: addHeaderRowIfNeeded_ ---
+function addHeaderRowIfNeeded_(sheet, headers) {
+   try {
+     if (!sheet || !headers || headers.length === 0) return;
+     var firstRow = sheet.getRange(1, 1, 1, sheet.getMaxColumns()).getValues()[0];
+     var headerString = firstRow.slice(0, headers.length).join("|").trim();
+     var expectedHeaderString = headers.join("|").trim();
+
+     // Check if first row is empty or if headers don't match expected
+     if (sheet.getLastRow() < 1 || headerString === "" || headerString !== expectedHeaderString) {
+         // Clear first row just in case it has partial/wrong data
+         sheet.getRange(1, 1, 1, sheet.getMaxColumns()).clearContent();
+         // Set the correct headers
+         sheet.getRange(1, 1, 1, headers.length).setValues([headers]).setFontWeight("bold");
+         // Freeze the header row
+         sheet.setFrozenRows(1);
+         SpreadsheetApp.flush();
+         Logger.log("addHeaderRowIfNeeded_: Header row written/updated: " + headers.join(", "));
+     } else {
+         Logger.log("addHeaderRowIfNeeded_: Header row already exists and matches.");
+     }
+   } catch (e) { Logger.log("Warning: Error checking/adding header row: " + e); }
+}
+
+// --- Modified: sendConfirmationEmailWithTable ---
+function sendConfirmationEmailWithTable(orderId, name, recipientEmail, phone, orderedItemsString, totalPriceString) {
+     try {
+        if (!recipientEmail || !validateEmail(recipientEmail)) {
+            Logger.log("Skipping email: Invalid or missing recipient email provided: " + recipientEmail + " for Order ID: " + orderId);
+            return;
+        }
+        var subject = "Konfirmasi Pesanan Edugo [ID: " + orderId + "]"; // Add ID to subject
+        var senderName = "No-reply Edugo";
+        var tableRowsHtml = '';
+        var itemsArray = orderedItemsString.split(';\n')
+                                      .map(function(item) { return item.trim(); })
+                                      .filter(function(item) { return item.length > 0; });
+
+         if (itemsArray.length > 0) {
+            itemsArray.forEach(function(itemString, index) {
+                var itemDescription = itemString;
+                var itemPrice = '';
+                var priceMatch = itemString.match(/\((Rp\.?\s*[\d,.]+)\)$/i);
+                if (priceMatch && priceMatch[1]) {
+                    itemPrice = priceMatch[1].trim();
+                    itemDescription = itemString.substring(0, itemString.lastIndexOf('(')).replace(/^\d+\.\s*/, '').trim();
+                } else {
+                     itemDescription = itemString.replace(/^\d+\.\s*/, '').trim();
+                }
+                var escapedDescription = escapeHtml_(itemDescription);
+                var escapedPrice = escapeHtml_(itemPrice);
+                tableRowsHtml += `<tr style="border-bottom: 1px solid #eaeaea; background-color: ${index % 2 === 0 ? '#ffffff' : '#f9f9f9'};"> <td style="padding: 10px 8px; text-align: center; color: #555; font-size: 14px; vertical-align: top;">${index + 1}</td> <td style="padding: 10px 15px; font-size: 14px; vertical-align: top;">${escapedDescription}</td> <td style="padding: 10px 15px; text-align: right; white-space: nowrap; font-size: 14px; font-weight: 500; vertical-align: top;">${escapedPrice || '-'}</td> </tr>`;
+            });
+        } else {
+            tableRowsHtml = '<tr><td colspan="3" style="padding: 15px; text-align: center; color: #777; font-style: italic;">Tidak ada detail item yang tercatat.</td></tr>';
+        }
+
+        // --- Modified Email Body to include Order ID ---
+        var htmlBody = `
+      <!DOCTYPE html><html lang="id"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0"><title>${subject}</title>
+      <style> body { margin: 0; padding: 0; font-family: Arial, Helvetica, 'Helvetica Neue', sans-serif; font-size: 16px; line-height: 1.6; color: #333333; background-color: #f4f4f7; -webkit-font-smoothing: antialiased; -moz-osx-font-smoothing: grayscale; } .email-wrapper { padding: 20px 0; } .email-container { max-width: 600px; margin: 0 auto; background-color: #ffffff; border: 1px solid #dddddd; border-radius: 8px; overflow: hidden; box-shadow: 0 2px 10px rgba(0,0,0,0.07); } .header { background-color: #09577c; color: #ffffff; padding: 25px 30px; text-align: center; border-bottom: 4px solid #0c6791; } .header h1 { margin: 0; font-size: 24px; font-weight: 600; } .content { padding: 30px 35px; } .content p { margin-top: 0; margin-bottom: 18px; font-size: 15px; color: #444444; } .content h2 { color: #09577c; margin-top: 0; margin-bottom: 15px; font-size: 20px; font-weight: 600; } .items-table { width: 100%; border-collapse: collapse; margin-top: 15px; margin-bottom: 25px; border: 1px solid #eaeaea; } .items-table th { background-color: #f8f9fa; color: #333; padding: 12px 15px; text-align: left; border-bottom: 2px solid #dee2e6; font-size: 14px; font-weight: 600; } .items-table th.price-col, .items-table td.price-col { text-align: right; } .items-table td { vertical-align: top; } .total-row td { padding-top: 15px; border-top: 2px solid #dee2e6; font-weight: bold; font-size: 1.1em; } .total-label { text-align: right; padding-right: 10px; color: #555; } .total-value { text-align: right; color: #09577c; white-space: nowrap;} strong.customer-detail { color: #0b6a94; font-weight: 600; } .contact-info { margin-top: 25px; padding-top: 15px; border-top: 1px dashed #cccccc; font-size: 14px; color: #555; } .footer { margin-top: 0; padding: 20px; font-size: 12px; color: #888888; text-align: center; background-color: #f8f8f8; border-top: 1px solid #eaeaea; } a { color: #1a73e8; text-decoration: none; } a:hover { text-decoration: underline; } .button { display: inline-block; background-color: #1a73e8; color: #ffffff; padding: 10px 20px; border-radius: 5px; text-decoration: none; font-weight: bold; margin-top: 10px;} .button:hover { background-color: #0f5ec4; } </style></head>
+      <body><div class="email-wrapper"><div class="email-container"><div class="header"><h1>Pesanan Anda Diterima!</h1></div><div class="content"><h2>Halo ${escapeHtml_(name)},</h2><p>Terima kasih telah memesan layanan dari <strong>${senderName}</strong>! Rincian pesanan Anda adalah sebagai berikut:</p>
+      <table class="items-table"><thead><tr><th style="width: 10%; text-align: center;">No.</th><th>Layanan / Opsi</th><th class="price-col" style="width: 25%;">Harga</th></tr></thead><tbody>${tableRowsHtml}</tbody><tfoot><tr class="total-row"><td colspan="2" class="total-label">Total Estimasi:</td><td class="total-value price-col">${escapeHtml_(totalPriceString)}</td></tr></tfoot></table>
+      <p>Tim kami akan segera menghubungi Anda melalui nomor telepon/WhatsApp di <strong class="customer-detail">${escapeHtml_(phone)}</strong> untuk konfirmasi lebih lanjut, termasuk detail pembayaran dan langkah berikutnya.</p>
+      <div class="contact-info"><p>Jika Anda memiliki pertanyaan sebelum kami hubungi, jangan ragu untuk membalas email ini atau menghubungi kami langsung melalui WhatsApp:</p><p style="text-align: center;"><a href="https://wa.me/6285250794070?text=Halo%20Edugo%2C%20saya%20mau%20tanya%20tentang%20pesanan%20saya%20(${encodeURIComponent(name)})" class="button" target="_blank" style="color: #ffffff !important;">Chat via WhatsApp</a></p></div><br><p>Salam Hangat,</p><p><strong>${senderName}</strong></p></div>
+      <div class="footer">Email ini dikirim secara otomatis. Anda menerima email ini karena melakukan pemesanan layanan di website kami.</div></div></div></body></html>`;
+
+        var mailOptions = {
+          to: recipientEmail,
+          subject: subject,
+          htmlBody: htmlBody,
+          name: senderName
+        };
+        if (ADMIN_EMAIL_BCC && ADMIN_EMAIL_BCC.length > 5 && validateEmail(ADMIN_EMAIL_BCC)) {
+          mailOptions.bcc = ADMIN_EMAIL_BCC;
+          Logger.log("Admin BCC will be sent to: " + ADMIN_EMAIL_BCC);
+        } else if (ADMIN_EMAIL_BCC && ADMIN_EMAIL_BCC.length > 0) {
+          Logger.log("Warning: Invalid Admin BCC email configured: '" + ADMIN_EMAIL_BCC + "'. BCC not sent.");
+        }
+        MailApp.sendEmail(mailOptions);
+        Logger.log("Confirmation email successfully sent to: " + recipientEmail + " for Order ID: " + orderId + (mailOptions.bcc ? " (BCC: " + mailOptions.bcc + ")" : ""));
+    } catch (error) {
+        Logger.log("!!! ERROR sending confirmation email to " + recipientEmail + " for Order ID: " + orderId + " !!! Error: " + error);
+    }
+}
+
+// --- validateEmail (No changes needed) ---
+function validateEmail(email) {
+  if (!email || typeof email !== 'string') { return false; }
+  var re = /^[a-zA-Z0-9.!#$%&'*+/=?^_`{|}~-]+@[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?(?:\.[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?){1,}$/;
+  return re.test(String(email).trim().toLowerCase());
+}
+
+// --- escapeHtml_ (No changes needed) ---
+function escapeHtml_(str) {
+  if (str === null || typeof str === 'undefined') return '';
+  // Correctly escape HTML special characters with their entities
+  return String(str)
+         .replace(/&/g, '&amp;')  // Replace & with &amp;
+         .replace(/</g, '&lt;')   // Replace < with &lt;
+         .replace(/>/g, '&gt;')   // Replace > with &gt;
+         .replace(/"/g, '&quot;') // Replace " with &quot;
+         .replace(/'/g, '&#39;'); // Replace ' with &#39; (HTML entity for single quote)
+
+}
+
+
+// --- Optional Test Functions (Keep as is, update test data if needed) ---
+function testSheetAccess() { /* ... */ }
+function testSendEmailTable() { /* Example call with Order ID */
+    var testOrderId = "EDG-TEST-123";
+    var testName = "Test User";
+    var testEmail = "your_test_email@example.com"; // Replace with a real test email
+    var testPhone = "+6200000000";
+    var testItems = "1. KONSULTASI/BIMBINGAN - Opsi: 1 jam konsultasi (Rp 50.000);\n2. POWERPOINT - Opsi: Dengan materi: Basic design (Rp 50.000)";
+    var testTotal = "Rp 100.000";
+    sendConfirmationEmailWithTable(testOrderId, testName, testEmail, testPhone, testItems, testTotal);
+    Logger.log("Test email function called. Check inbox for " + testEmail);
+}
+
+/*
+--- Deployment Instructions ---
+1.  **Save** script changes (Ctrl+S).
+2.  **Deploy > Manage deployments**.
+3.  Select your **existing Active deployment**.
+4.  Click the **Edit** (pencil) icon.
+5.  Select **New version** from the "Version" dropdown.
+6.  Add a description (e.g., "Added Order ID handling and Local History support").
+7.  Click **Deploy**. (Permissions should not need re-authorization unless you added totally new services).
+8.  **Keep the SAME Web app URL**. You are updating an existing deployment.
+9.  **Clear Browser Cache HARD** for your website page (`cart.js` file).
+10. **Test:**
+    *   Place an order.
+    *   Check the success message in the modal – it should show the Order ID.
+    *   Check your browser's `localStorage` (Developer Tools > Application > Local Storage) for the `edugoOrderHistory` key.
+    *   Check the "Riwayat Pesanan Lokal Anda" section on the page – the new order should appear.
+    *   Check the Google Sheet – a new row with the Order ID should be there.
+    *   Check the confirmation email – it should include the Order ID prominently.
+*/
